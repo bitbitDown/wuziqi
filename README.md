@@ -1,7 +1,15 @@
 # * About the project
 
-* 项目是一个五子棋游戏练手项目，支持本地和局域网连接
-* 项目栈 vue3+nestjs+websocket
-* 
+* The project is a Gomoku game practice project that supports local and LAN connectivity
+* Project stack
+  * front  vue3+tailwindcss
+  * end  nestjs+websocket+redis
+* Monorepo architecture based on PNPM makes project management more convenient
 
 # Getting Started
+
+run the front end and back end
+
+`pnpm -F front-end dev`
+
+`pnpm -F back-end start`
