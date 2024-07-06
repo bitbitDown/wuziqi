@@ -1,12 +1,9 @@
 <script setup>
-import wuziqi from './components/wuziqi.vue';
+import Main from "./pages/index.vue";
 </script>
 
 <template>
-  <div>
-        <wuziqi></wuziqi>
-  </div>
+  <Main></Main>
 </template>
 
-<style >
-</style>
+<style scoped></style>

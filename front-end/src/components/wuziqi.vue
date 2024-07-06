@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, inject, onUnmounted, computed, nextTick } from "vue";
+import { ref, onMounted, inject, onUnmounted, computed } from "vue";
 
 const socket = inject('socket');
 
