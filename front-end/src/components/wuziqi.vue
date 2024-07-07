@@ -1,24 +1,41 @@
 <script setup>
 import { ref, onMounted, inject, onUnmounted, computed } from "vue";
 
-const socket = inject('socket');
-
+const socket = inject("socket");
+const disabled = ref(false);
+const props = defineProps({
+  mode: {
+    type: String,
+  },
+});
 function emitChessboard(location, belongsTo) {
-  socket.emit('chessboard', { location, belongsTo }, (data) => {
-    console.log('chessboard:', data) // { msg1: '测试1', msg2: '测试2' }
+  socket.emit("chessboard", { location, belongsTo }, (data) => {
+    console.log("chessboard:", data); // { msg1: '测试1', msg2: '测试2' }
   });
 }
-
-socket.on('currentChessboard', (data) => {
-  console.log('currentChessboard:', data) // { msg1: '测试1', msg2: '测试2' }
-  const { location: { row, col }, belongsTo } = data
-  boxMap.set(`row${row}col${col}`, { empty: false, belongsTo });
-  active.value =
+function initData() {
+  if (props.mode === "lan") {
+    socket.connect(); //连接socket服务器
+    socket.on("currentChessboard", (data) => {
+      console.log("currentChessboard:", data); // { msg1: '测试1', msg2: '测试2' }
+      const {
+        location: { row, col },
+        belongsTo,
+        socketId,
+      } = data;
+      disabled.value = socket.id === data.socketId;
+      boxMap.set(`row${row}col${col}`, { empty: false, belongsTo });
+      active.value =
         active.value === "whitePlayer" ? "blackPlayer" : "whitePlayer";
-});
-
+    });
+  }
+  countdownInterval = setInterval(updateCountdown, 1000);
+}
 onMounted(() => {
-  socket.connect(); //连接socket服务器
+  initData();
+});
+onUnmounted(() => {
+  clearInterval(countdownInterval);
 });
 //对局时间
 const countdownTime = moment().add(15, "minutes");
@@ -51,7 +68,7 @@ const boxMap = new Map();
 let row = 1;
 let col = 1;
 while (row <= rows.value) {
-  while (col <= cols.value) {
+  while (col <= cols.value + 1) {
     boxMap.set(`row${row}col${col}`, { empty: true, belongsTo: null });
     col++;
   }
@@ -59,22 +76,39 @@ while (row <= rows.value) {
   col = 1;
 }
 
-const isEmpty = computed(() => {
-  return (row, col) => {
-    return boxMap.get(`row${row}col${col}`)?.empty;
-  };
-});
-const belongsTo = computed(() => {
+const isEmpty = (row, col) => {
+  return boxMap.get(`row${row}col${col}`)?.empty;
+};
+const belongsToWho = computed(() => {
   return (row, col) => {
     return boxMap.get(`row${row}col${col}`)?.belongsTo;
   };
 });
 
+function initLocaltion(location) {
+  return {
+    position: "absolute",
+    top: "-50%",
+    [location === "left-top" ? "left" : "right"]: "-50%",
+  };
+}
 //放下棋子
-function putDownPiece(row, col) {
+function putDownPiece(row, col, event) {
+  const location = getCornerClicked(event.target, event.clientX, event.clientY);
+  //处理行列，由单元格行变为边框，每个单元格跨2行2列
+  if (["bottomLeft", "bottomRight"].includes(location)) {
+    row += 1;
+  }
+  if (["topRight", "bottomRight"].includes(location)) {
+    col += 1;
+  }
   if (boxMap.get(`row${row}col${col}`)?.empty) {
-    boxMap.set(`row${row}col${col}`, { empty: false, belongsTo: active.value });
-    emitChessboard({ row, col }, active.value)
+    boxMap.set(`row${row}col${col}`, {
+      empty: false,
+      belongsTo: active.value,
+      location,
+    });
+    emitChessboard({ row, col }, active.value);
     if (validSuccess(row, col, active.value)) {
       alert(`${active.value} 获胜!`);
       window.location.reload();
@@ -167,40 +201,99 @@ function validSuccess(row, col, active) {
 
   return false;
 }
-onMounted(() => {
-  countdownInterval = setInterval(updateCountdown, 1000);
-});
+function getCornerClicked(element, clientX, clientY) {
+  const rect = element.getBoundingClientRect();
+  // 计算点击位置相对于元素四角的距离
+  const topLeftDistance = Math.sqrt(
+    Math.pow(clientX - rect.left, 2) + Math.pow(clientY - rect.top, 2)
+  );
+  const topRightDistance = Math.sqrt(
+    Math.pow(clientX - rect.right, 2) + Math.pow(clientY - rect.top, 2)
+  );
+  const bottomLeftDistance = Math.sqrt(
+    Math.pow(clientX - rect.left, 2) + Math.pow(clientY - rect.bottom, 2)
+  );
+  const bottomRightDistance = Math.sqrt(
+    Math.pow(clientX - rect.right, 2) + Math.pow(clientY - rect.bottom, 2)
+  );
 
-onUnmounted(() => {
-  clearInterval(countdownInterval);
-});
+  // 找出最短距离对应的角落
+  const minDistance = Math.min(
+    topLeftDistance,
+    topRightDistance,
+    bottomLeftDistance,
+    bottomRightDistance
+  );
+  if (minDistance === topLeftDistance) {
+    return "topLeft";
+  } else if (minDistance === topRightDistance) {
+    return "topRight";
+  } else if (minDistance === bottomLeftDistance) {
+    return "bottomLeft";
+  } else if (minDistance === bottomRightDistance) {
+    return "bottomRight";
+  } else {
+    return "none";
+  }
+}
+function getCellStyle(row, col) {
+  // return { border:col===cols?'none':'1px solid #655b51'}
+  const prop = "1px solid #655b51";
+  const style = {
+    "border-left": prop,
+    "border-top": prop,
+  };
+  row === rows.value && (style["border-bottom"] = prop);
+  col === cols.value && (style["border-right"] = prop);
+  return style;
+}
 </script>
 <template>
-  <div class="m-10 relative flex justify-center items-center">
-    <div class="absolute left-0">
-      <span>黑方：</span> <img src="/wuzi-black.png" /> <span>红方</span>
-      <img src="/wuzi-white.png" />
+  <div class="relative flex justify-center items-center">
+    <div class="fixed left-0">
+      <span>黑方：</span> <img src="/chicken.svg" /> <span>红方</span>
+      <img src="/gululu.svg" />
     </div>
-    <div class="">
-      <span class="text-gray-500">对局剩余时间</span><span class="text-red-500 ml-5"> {{ countdown }}</span>
+    <div class="w-full text-center">
+      <span class="text-gray-500">对局剩余时间</span
+      ><span class="text-red-500 ml-5"> {{ countdown }}</span>
     </div>
   </div>
-  <div class="flex justify-center items-center h-[50rem]">
-    <div class="bg-yellow-400">
+  <div class="flex justify-center items-center h-[20rem]">
+    <div class="bg-[#ffe4c7]">
       <div class="grid grid-rows-10">
         <div v-for="row in rows" class="flex">
-          <div v-for="col in cols" class="w-8 h-8 flex justify-center items-center border-2" :class="{
-            'wuzi-white-cursor': active === 'whitePlayer',
-            'wuzi-black-cursor': active === 'blackPlayer',
-          }" @click="putDownPiece(row, col)">
-            <!-- <img src="/wuzi-black.png"> -->
-            <!-- <span v-if="isEmpty(row, col)">{{ `${row},${col}` }}</span> -->
+          <div
+            v-for="col in cols"
+            class="w-8 h-8 flex justify-center items-center relative"
+            :style="getCellStyle(row, col)"
+            :key="`${row}-${col}`"
+            :class="{
+              'wuzi-white-cursor': active === 'whitePlayer',
+              'wuzi-black-cursor': active === 'blackPlayer',
+            }"
+            @click="disabled ? () => {} : putDownPiece(row, col, $event)"
+          >
             <span v-if="isEmpty(row, col)"></span>
-            <img v-else :src="belongsTo(row, col) === 'whitePlayer'
-              ? '/wuzi-white.png'
-              : '/wuzi-black.png'
-              " />
-            <!-- <img src="/wuzi-white.png"> -->
+            <template v-else>
+              <img
+                :style="initLocaltion('left-top')"
+                :src="
+                  belongsToWho(row, col) === 'whitePlayer'
+                    ? '/gululu.svg'
+                    : '/chicken.svg'
+                "
+              />
+            </template>
+            <img
+              v-if="col === cols && !isEmpty(row, col + 1)"
+              :style="initLocaltion('right-top')"
+              :src="
+                belongsToWho(row, col + 1) === 'whitePlayer'
+                  ? '/gululu.svg'
+                  : '/chicken.svg'
+              "
+            />
           </div>
         </div>
       </div>
@@ -209,12 +302,12 @@ onUnmounted(() => {
 </template>
 <style scoped>
 .wuzi-white-cursor {
-  cursor: url("/wuzi-white.png"), auto;
+  cursor: url("/gululu.svg"), auto;
   outline: none;
 }
 
 .wuzi-black-cursor {
-  cursor: url("/wuzi-black.png"), auto;
+  cursor: url("/chicken.svg"), auto;
   outline: none;
 }
 </style>

@@ -9,16 +9,17 @@ export class SocketioGateway {
   constructor(private readonly socketioService: SocketioService) {}
   // 接受来自客户端的棋盘状态并广播
   @SubscribeMessage('chessboard')
-  chessboard(@MessageBody() { location, belongsTo }: { location: object, belongsTo: string }) {
+  chessboard(@MessageBody() { location, belongsTo }: { location: object, belongsTo: string },@ConnectedSocket() socket) {
     const updatedChessboard = this.socketioService.chessboard(location, belongsTo);
-    console.log('Current connected clients:', this.server.sockets.sockets.size);
+    // console.log('Current connected clients:', this.server.sockets.sockets);
     this.server.sockets.sockets.forEach((socket) => {
-      console.log('Client ID:', socket.emit);
+      // console.log('Client ID:', socket.id);
       socket.emit('currentChessboard', updatedChessboard)
     });
+    console.log('Sender socket ID:', socket.id);
     return {
       event: 'currentChessboard',
-      data: { ...updatedChessboard }
+      data: { ...updatedChessboard,socketId: socket.id}
     };
   }
 

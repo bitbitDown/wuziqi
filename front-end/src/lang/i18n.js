@@ -11,7 +11,7 @@ const messages = {
   },
 };
 
-let local = 'en'
+let local = 'zh_CN'
 const i18n = createI18n({
   locale: local, // 设置当前语言类型
   legacy: false, // 如果要支持compositionAPI，此项必须设置为false;

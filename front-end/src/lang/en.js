@@ -1,3 +1,4 @@
 export default {
-  "standaloneMode": "Standalone Mode"
+  "standaloneMode": "Standalone Mode",
+  "lanMode":"Lan Mode"
 }
