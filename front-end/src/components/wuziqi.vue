@@ -52,7 +52,16 @@ function selectPiece(type, path) {
 // 开始游戏
 function startGame() {
   gameState.value = 'playing';
+  
+  // 在AI模式下，玩家总是红方(whitePlayer)，AI总是黑方(blackPlayer)
+  active.value = "whitePlayer";
+  
   initData();
+  
+  // 如果是AI模式且AI先手，让AI下第一步棋
+  if (isAIMode.value && active.value === 'blackPlayer') {
+    aiMove();
+  }
 }
 
 function emitChessboard(location, belongsTo) {
@@ -79,10 +88,7 @@ function initData() {
   countdownInterval = setInterval(updateCountdown, 1000);
 }
 
-// 修改onMounted，不再自动初始化游戏
-onMounted(() => {
-  // 不再自动调用initData，等待用户选择棋子后再开始游戏
-});
+
 onUnmounted(() => {
   clearInterval(countdownInterval);
 });
@@ -164,6 +170,12 @@ function putDownPiece(row, col, event) {
     } else {
       active.value =
         active.value === "whitePlayer" ? "blackPlayer" : "whitePlayer";
+      
+      // 添加AI响应逻辑
+      // 如果是AI模式且轮到AI（黑方）
+      if (isAIMode.value && active.value === 'blackPlayer') {
+        aiMove();
+      }
     }
   }
 }
@@ -319,43 +331,436 @@ function resetGame() {
     socket.emit("resetGame");
   }
 }
+// 添加返回主界面的函数
+function backToSelection() {
+  // 先重置游戏状态
+  resetGame();
+  
+  // 清除计时器
+  clearInterval(countdownInterval);
+  
+  // 切换回选择界面
+  gameState.value = 'pieceSelection';
+}
+
+// 添加AI相关功能
+const isAIMode = ref(false); // 是否启用AI模式
+const aiDifficulty = ref('medium'); // AI难度: 'easy', 'medium', 'hard'
+
+// 切换AI模式
+function toggleAIMode() {
+  isAIMode.value = !isAIMode.value;
+}
+
+// 设置AI难度
+function setAIDifficulty(difficulty) {
+  aiDifficulty.value = difficulty;
+}
+
+// AI下棋逻辑
+function aiMove() {
+  if (!isAIMode.value || active.value !== 'blackPlayer') return;
+  
+  // 延迟一下，模拟AI思考时间
+  setTimeout(() => {
+    // 根据难度选择不同的AI策略
+    let move;
+    
+    switch(aiDifficulty.value) {
+      case 'easy':
+        move = findRandomMove();
+        break;
+      case 'medium':
+        move = findBetterMove();
+        break;
+      case 'hard':
+        move = findBestMove();
+        break;
+      default:
+        move = findBetterMove();
+    }
+    
+    if (move) {
+      // 修改这部分代码，不再尝试查找DOM元素
+      // 直接使用简化版本设置棋子
+      const location = 'topLeft'; // 默认位置
+      
+      boxMap.set(`row${move.row}col${move.col}`, {
+        empty: false,
+        belongsTo: active.value,
+        location,
+      });
+      
+      // 如果需要，发送联机消息
+      emitChessboard({ row: move.row, col: move.col }, active.value);
+      
+      if (validSuccess(move.row, move.col, active.value)) {
+        alert(`${active.value} 获胜!`);
+        resetGame();
+      } else {
+        active.value = 'whitePlayer';
+      }
+    }
+  }, 800); // 思考时间800毫秒
+}
+
+// 随机找一个空位下棋（简单难度）
+function findRandomMove() {
+  const emptyPositions = [];
+  
+  // 收集所有空位
+  for (let r = 1; r <= rows.value; r++) {
+    for (let c = 1; c <= cols.value; c++) {
+      if (boxMap.get(`row${r}col${c}`)?.empty) {
+        emptyPositions.push({ row: r, col: c });
+      }
+    }
+  }
+  
+  // 随机选择一个空位
+  if (emptyPositions.length > 0) {
+    const randomIndex = Math.floor(Math.random() * emptyPositions.length);
+    return emptyPositions[randomIndex];
+  }
+  
+  return null;
+}
+
+// 寻找更好的位置（中等难度）
+function findBetterMove() {
+  // 先检查是否有可以连成五子的位置
+  const winningMove = findWinningMove('blackPlayer');
+  if (winningMove) return winningMove;
+  
+  // 再检查是否需要阻止对手连成五子
+  const blockingMove = findWinningMove('whitePlayer');
+  if (blockingMove) return blockingMove;
+  
+  // 否则随机选择一个位置
+  return findRandomMove();
+}
+
+// 添加缺失的findWinningMove函数
+function findWinningMove(player) {
+  // 检查所有空位
+  for (let r = 1; r <= rows.value; r++) {
+    for (let c = 1; c <= cols.value; c++) {
+      if (boxMap.get(`row${r}col${c}`)?.empty) {
+        // 临时放置棋子
+        boxMap.set(`row${r}col${c}`, { empty: false, belongsTo: player });
+        
+        // 检查是否获胜
+        const isWinning = validSuccess(r, c, player);
+        
+        // 恢复空位
+        boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
+        
+        if (isWinning) {
+          return { row: r, col: c };
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+// 寻找最佳位置（困难难度）
+function findBestMove() {
+  // 先检查是否有可以连成五子的位置
+  const winningMove = findWinningMove('blackPlayer');
+  if (winningMove) return winningMove;
+  
+  // 再检查是否需要阻止对手连成五子
+  const blockingMove = findWinningMove('whitePlayer');
+  if (blockingMove) return blockingMove;
+  
+  // 检查是否有可以连成四子的位置
+  const fourInARowMove = findNInARowMove('blackPlayer', 4);
+  if (fourInARowMove) return fourInARowMove;
+  
+  // 检查是否需要阻止对手连成四子
+  const blockingFourMove = findNInARowMove('whitePlayer', 4);
+  if (blockingFourMove) return blockingFourMove;
+  
+  // 检查是否有可以连成三子的位置
+  const threeInARowMove = findNInARowMove('blackPlayer', 3);
+  if (threeInARowMove) return threeInARowMove;
+  
+  // 如果是游戏开始阶段，优先选择中心位置或其周围
+  if (isEarlyGame()) {
+    const centerMove = findCenterAreaMove();
+    if (centerMove) return centerMove;
+  }
+  
+  // 否则随机选择一个位置，但优先选择靠近已有棋子的位置
+  return findStrategicRandomMove();
+}
+
+// 判断是否为游戏早期阶段（棋盘上棋子少于10个）
+function isEarlyGame() {
+  let pieceCount = 0;
+  for (let r = 1; r <= rows.value; r++) {
+    for (let c = 1; c <= cols.value; c++) {
+      if (!boxMap.get(`row${r}col${c}`)?.empty) {
+        pieceCount++;
+        if (pieceCount >= 10) return false;
+      }
+    }
+  }
+  return true;
+}
+
+// 寻找中心区域的位置
+function findCenterAreaMove() {
+  const centerRow = Math.ceil(rows.value / 2);
+  const centerCol = Math.ceil(cols.value / 2);
+  const centerArea = [];
+  
+  // 检查中心点
+  if (boxMap.get(`row${centerRow}col${centerCol}`)?.empty) {
+    return { row: centerRow, col: centerCol };
+  }
+  
+  // 检查中心点周围的位置
+  for (let r = centerRow - 2; r <= centerRow + 2; r++) {
+    for (let c = centerCol - 2; c <= centerCol + 2; c++) {
+      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
+        if (boxMap.get(`row${r}col${c}`)?.empty) {
+          centerArea.push({ row: r, col: c });
+        }
+      }
+    }
+  }
+  
+  if (centerArea.length > 0) {
+    return centerArea[Math.floor(Math.random() * centerArea.length)];
+  }
+  
+  return null;
+}
+
+// 寻找可以连成N子的位置
+function findNInARowMove(player, n) {
+  // 检查所有空位
+  for (let r = 1; r <= rows.value; r++) {
+    for (let c = 1; c <= cols.value; c++) {
+      if (boxMap.get(`row${r}col${c}`)?.empty) {
+        // 临时放置棋子
+        boxMap.set(`row${r}col${c}`, { empty: false, belongsTo: player });
+        
+        // 检查是否形成了N子连线
+        if (hasNInARow(r, c, player, n)) {
+          // 恢复空位
+          boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
+          return { row: r, col: c };
+        }
+        
+        // 恢复空位
+        boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
+      }
+    }
+  }
+  
+  return null;
+}
+
+// 检查是否有N子连线
+function hasNInARow(row, col, player, n) {
+  const directions = [
+    [0, 1],  // 水平
+    [1, 0],  // 垂直
+    [1, 1],  // 对角线
+    [1, -1]  // 反对角线
+  ];
+  
+  for (const [dr, dc] of directions) {
+    let count = 1;
+    
+    // 正向检查
+    for (let i = 1; i < 5; i++) {
+      const r = row + dr * i;
+      const c = col + dc * i;
+      
+      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
+        if (boxMap.get(`row${r}col${c}`)?.belongsTo === player) {
+          count++;
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    
+    // 反向检查
+    for (let i = 1; i < 5; i++) {
+      const r = row - dr * i;
+      const c = col - dc * i;
+      
+      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
+        if (boxMap.get(`row${r}col${c}`)?.belongsTo === player) {
+          count++;
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    
+    // 如果连线数量等于n，返回true
+    if (count === n) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// 寻找战略性随机位置（靠近已有棋子的空位）
+function findStrategicRandomMove() {
+  const allEmptyPositions = [];
+  const strategicPositions = [];
+  
+  // 收集所有空位和战略位置
+  for (let r = 1; r <= rows.value; r++) {
+    for (let c = 1; c <= cols.value; c++) {
+      if (boxMap.get(`row${r}col${c}`)?.empty) {
+        allEmptyPositions.push({ row: r, col: c });
+        
+        // 检查周围是否有棋子
+        if (hasAdjacentPiece(r, c)) {
+          strategicPositions.push({ row: r, col: c });
+        }
+      }
+    }
+  }
+  
+  // 优先选择战略位置，如果没有则随机选择
+  if (strategicPositions.length > 0) {
+    return strategicPositions[Math.floor(Math.random() * strategicPositions.length)];
+  } else if (allEmptyPositions.length > 0) {
+    return allEmptyPositions[Math.floor(Math.random() * allEmptyPositions.length)];
+  }
+  
+  return null;
+}
+
+// 检查周围是否有棋子
+function hasAdjacentPiece(row, col) {
+  for (let r = row - 1; r <= row + 1; r++) {
+    for (let c = col - 1; c <= col + 1; c++) {
+      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
+        if (r !== row || c !== col) {  // 排除自身
+          if (!boxMap.get(`row${r}col${c}`)?.empty) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
 </script>
 <template>
-  <div class="game-container bg-white rounded-2xl shadow-lg p-4 md:p-6 max-w-2xl mx-auto border-4 border-pink-200">
-    <h1 class="text-2xl md:text-3xl font-bold text-center text-pink-500 mb-4">🎮 五子棋游戏 🎲</h1>
+  <div class="game-container bg-white rounded-2xl shadow-lg p-4 md:p-6 max-w-2xl mx-auto border-4 border-pink-200 relative overflow-hidden">
+    <!-- 添加装饰性气泡背景 -->
+    <div class="absolute -top-10 -left-10 w-40 h-40 bg-pink-100 rounded-full opacity-50"></div>
+    <div class="absolute -bottom-10 -right-10 w-32 h-32 bg-purple-100 rounded-full opacity-50"></div>
+    <div class="absolute top-1/3 -right-10 w-24 h-24 bg-blue-100 rounded-full opacity-40"></div>
+    
+    <h1 class="text-2xl md:text-3xl font-bold text-center text-pink-500 mb-4 relative">
+      🎮 五子棋游戏 🎲
+      <span class="absolute -top-1 -right-1 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">热门</span>
+    </h1>
     
     <!-- 棋子选择界面 -->
-    <div v-if="gameState === 'pieceSelection'" class="p-4 bg-white rounded-xl shadow-md border-2 border-pink-100">
-      <h3 class="text-lg font-bold text-pink-500 text-center mb-4">请选择您喜欢的棋子</h3>
+    <div v-if="gameState === 'pieceSelection'" class="p-4 bg-white rounded-xl shadow-md border-2 border-pink-100 relative">
+      <!-- 添加一个小标签 -->
+      <div class="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs px-3 py-1 rounded-full">
+        个性化设置
+      </div>
       
+      <h3 class="text-lg font-bold text-pink-500 text-center mb-4 mt-2">请选择您喜欢的棋子</h3>
+      
+      <!-- 添加AI模式选择 -->
+      <div class="mb-6 bg-blue-50 p-3 rounded-lg transform transition-all hover:scale-102 hover:shadow-md">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="font-medium text-blue-600 flex items-center">
+            <span class="mr-2">🤖</span> AI对战模式
+          </h4>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" v-model="isAIMode" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            <span class="ml-3 text-sm font-medium text-gray-700">{{ isAIMode ? '已开启' : '已关闭' }}</span>
+          </label>
+        </div>
+        
+        <div v-if="isAIMode" class="mt-2">
+          <h5 class="text-sm font-medium mb-2 text-gray-700">选择AI难度:</h5>
+          <div class="flex space-x-2">
+            <button 
+              @click="setAIDifficulty('easy')" 
+              class="px-3 py-1 rounded-full text-sm transition-all duration-300"
+              :class="aiDifficulty === 'easy' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+            >
+              <span class="mr-1">😊</span> 简单
+            </button>
+            <button 
+              @click="setAIDifficulty('medium')" 
+              class="px-3 py-1 rounded-full text-sm transition-all duration-300"
+              :class="aiDifficulty === 'medium' ? 'bg-yellow-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+            >
+              <span class="mr-1">🤔</span> 中等
+            </button>
+            <button 
+              @click="setAIDifficulty('hard')" 
+              class="px-3 py-1 rounded-full text-sm transition-all duration-300"
+              :class="aiDifficulty === 'hard' ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+            >
+              <span class="mr-1">😈</span> 困难
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 mt-2 italic">
+            AI将扮演黑方，您将扮演红方。难度越高，AI越聪明！挑战一下？
+          </p>
+        </div>
+      </div>
+      
+      <!-- 原有的棋子选择部分 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg">黑方棋子</h4>
+        <div class="transform transition-all hover:scale-102">
+          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg flex items-center justify-center">
+            <span class="mr-2">⚫</span> 黑方棋子
+          </h4>
           <div class="flex flex-wrap justify-center gap-3">
             <div 
               v-for="option in pieceOptions" 
               :key="'black-'+option.path"
-              class="p-3 border-2 rounded-lg cursor-pointer transition-all"
-              :class="blackPiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110' : 'border-gray-200 hover:border-pink-300'"
+              class="p-3 border-2 rounded-lg cursor-pointer transition-all duration-300"
+              :class="blackPiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110 shadow-md' : 'border-gray-200 hover:border-pink-300 hover:shadow-sm'"
               @click="selectPiece('black', option.path)"
             >
-              <img :src="option.path" class="w-12 h-12 mx-auto" />
+              <img :src="option.path" class="w-12 h-12 mx-auto transition-transform hover:rotate-12" />
               <div class="text-sm text-center mt-2">{{ option.name }}</div>
             </div>
           </div>
         </div>
         
-        <div>
-          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg">红方棋子</h4>
+        <div class="transform transition-all hover:scale-102">
+          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg flex items-center justify-center">
+            <span class="mr-2">🔴</span> 红方棋子
+          </h4>
           <div class="flex flex-wrap justify-center gap-3">
             <div 
               v-for="option in pieceOptions" 
               :key="'white-'+option.path"
-              class="p-3 border-2 rounded-lg cursor-pointer transition-all"
-              :class="whitePiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110' : 'border-gray-200 hover:border-pink-300'"
+              class="p-3 border-2 rounded-lg cursor-pointer transition-all duration-300"
+              :class="whitePiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110 shadow-md' : 'border-gray-200 hover:border-pink-300 hover:shadow-sm'"
               @click="selectPiece('white', option.path)"
             >
-              <img :src="option.path" class="w-12 h-12 mx-auto" />
+              <img :src="option.path" class="w-12 h-12 mx-auto transition-transform hover:rotate-12" />
               <div class="text-sm text-center mt-2">{{ option.name }}</div>
             </div>
           </div>
@@ -364,30 +769,35 @@ function resetGame() {
       
       <div class="mt-8 flex justify-center">
         <button 
-          class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+          class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1 relative overflow-hidden group"
           @click="startGame"
         >
-          开始游戏 🎮
+          <span class="relative z-10">开始游戏 🎮</span>
+          <span class="absolute top-0 left-0 w-full h-full bg-white opacity-20 transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></span>
         </button>
       </div>
     </div>
     
     <!-- 游戏界面 -->
-    <div v-if="gameState === 'playing'">
+    <div v-if="gameState === 'playing'" class="animate-fadeIn">
       <!-- 修改玩家信息和倒计时的布局 -->
-      <div class="mb-4 flex flex-col md:flex-row justify-between items-center bg-pink-50 rounded-xl shadow-sm p-3">
-        <div class="flex items-center mb-2 md:mb-0">
-          <div class="flex items-center mr-6">
+      <div class="mb-4 flex flex-col md:flex-row justify-between items-center bg-pink-50 rounded-xl shadow-sm p-3 relative overflow-hidden">
+        <div class="absolute -right-4 -bottom-4 w-16 h-16 bg-pink-200 rounded-full opacity-30"></div>
+        
+        <div class="flex items-center mb-2 md:mb-0 relative z-10">
+          <div class="flex items-center mr-6 bg-white px-3 py-1 rounded-lg shadow-sm">
             <span class="mr-2 font-medium">黑方：</span> 
             <img :src="blackPiece" class="w-8 h-8 animate-bounce-slow" /> 
+            <span v-if="active === 'blackPlayer'" class="ml-1 text-xs bg-green-500 text-white px-1 rounded animate-pulse">思考中</span>
           </div>
-          <div class="flex items-center">
+          <div class="flex items-center bg-white px-3 py-1 rounded-lg shadow-sm">
             <span class="mr-2 font-medium">红方：</span>
             <img :src="whitePiece" class="w-8 h-8 animate-bounce-slow" />
+            <span v-if="active === 'whitePlayer'" class="ml-1 text-xs bg-green-500 text-white px-1 rounded animate-pulse">思考中</span>
           </div>
         </div>
         
-        <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300">
+        <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300 relative z-10">
           <span class="text-gray-600">⏱️ 剩余时间</span>
           <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
         </div>
@@ -395,12 +805,18 @@ function resetGame() {
       
       <!-- 棋盘部分 -->
       <div class="flex justify-center items-center">
-        <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300">
+        <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300 relative transform transition-all hover:shadow-lg">
+          <!-- 添加棋盘装饰 -->
+          <div class="absolute -top-2 -left-2 w-4 h-4 bg-amber-500 rounded-full"></div>
+          <div class="absolute -top-2 -right-2 w-4 h-4 bg-amber-500 rounded-full"></div>
+          <div class="absolute -bottom-2 -left-2 w-4 h-4 bg-amber-500 rounded-full"></div>
+          <div class="absolute -bottom-2 -right-2 w-4 h-4 bg-amber-500 rounded-full"></div>
+          
           <div class="grid grid-rows-10">
             <div v-for="row in rows" class="flex">
               <div
                 v-for="col in cols"
-                class="w-7 h-7 md:w-8 md:h-8 flex justify-center items-center relative"
+                class="w-7 h-7 md:w-8 md:h-8 flex justify-center items-center relative transition-all duration-200"
                 :style="getCellStyle(row, col)"
                 :key="`${row}-${col}`"
                 :class="{
@@ -415,14 +831,14 @@ function resetGame() {
                   <img
                     :style="initLocaltion('left-top')"
                     :src="belongsToWho(row, col) === 'whitePlayer' ? whitePiece : blackPiece"
-                    class="piece-img"
+                    class="piece-img animate-dropIn"
                   />
                 </template>
                 <img
                   v-if="col === cols && !isEmpty(row, col + 1)"
                   :style="initLocaltion('right-top')"
                   :src="belongsToWho(row, col + 1) === 'whitePlayer' ? whitePiece : blackPiece"
-                  class="piece-img"
+                  class="piece-img animate-dropIn"
                 />
               </div>
             </div>
@@ -432,7 +848,7 @@ function resetGame() {
       
       <!-- 当前玩家提示 -->
       <div class="mt-4 text-center">
-        <div class="inline-block bg-pink-100 px-4 py-2 rounded-full shadow-sm">
+        <div class="inline-block bg-pink-100 px-4 py-2 rounded-full shadow-sm transform transition-all hover:scale-105">
           <span class="text-gray-700">当前轮到：</span>
           <span class="font-bold" :class="active === 'whitePlayer' ? 'text-red-500' : 'text-black'">
             {{ active === 'whitePlayer' ? '红方 🔴' : '黑方 ⚫' }}
@@ -440,13 +856,20 @@ function resetGame() {
         </div>
       </div>
       
-      <!-- 重新开始按钮 -->
-      <div class="mt-4 flex justify-center">
+      <!-- 操作按钮区 -->
+      <div class="mt-4 flex justify-center space-x-4">
         <button 
           class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
           @click="resetGame"
         >
           🔄 重新开始
+        </button>
+        
+        <button 
+          class="transition-all duration-300 bg-gradient-to-r from-blue-400 to-teal-400 hover:from-blue-500 hover:to-teal-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+          @click="backToSelection"
+        >
+          🏠 返回选择
         </button>
       </div>
       
@@ -456,10 +879,95 @@ function resetGame() {
         <span class="w-3 h-3 bg-purple-300 rounded-full animate-pulse delay-100"></span>
         <span class="w-3 h-3 bg-blue-300 rounded-full animate-pulse delay-200"></span>
       </div>
+      
+      <!-- 添加社交分享区 -->
+      <div class="mt-6 text-center">
+        <p class="text-sm text-gray-500 mb-2">喜欢这个游戏？请分享给朋友！</p>
+        <div class="flex justify-center space-x-3">
+          <button class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors">
+            <span>👍</span>
+          </button>
+          <button class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors">
+            <span>⭐</span>
+          </button>
+          <button class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
+            <span>❤️</span>
+          </button>
+          <button class="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center hover:bg-yellow-600 transition-colors">
+            <span>🔄</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 样式保持不变 */
+.animate-bounce-slow {
+  animation: bounce 2s infinite;
+}
+
+.animate-dropIn {
+  animation: dropIn 0.3s ease-out;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.hover\:scale-102:hover {
+  transform: scale(1.02);
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes dropIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.piece-img {
+  width: 24px;
+  height: 24px;
+  position: absolute;
+  z-index: 10;
+}
+
+@media (min-width: 768px) {
+  .piece-img {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* 鼠标悬停效果 */
+.wuzi-white-cursor:hover {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="red" stroke="white" stroke-width="2"/></svg>') 12 12, auto;
+}
+
+.wuzi-black-cursor:hover {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="black" stroke="white" stroke-width="2"/></svg>') 12 12, auto;
+}
 </style>
