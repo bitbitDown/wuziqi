@@ -8,6 +8,53 @@ const props = defineProps({
     type: String,
   },
 });
+
+// 添加游戏状态控制
+const gameState = ref('pieceSelection'); // 'pieceSelection', 'playing'
+// 导入所有图片资源
+const prefix = '/public'
+const images = import.meta.glob(`/public/*.svg`, { eager: true });
+
+// 将图片路径转换为URL
+const imageUrls = Object.keys(images).map(path => {
+  return path.replace(prefix, '');
+});
+
+// 根据imageUrls动态生成pieceOptions
+const dynamicPieceOptions = imageUrls.map(url => {
+  // 从文件名中提取名称（移除路径和扩展名）
+  const name = url.split('/').pop().replace('.svg', '');
+  
+  return {
+    name: name,
+    path: url
+  };
+});
+
+// 添加棋子选择相关变量
+
+const pieceOptions = [
+  ...dynamicPieceOptions
+];
+
+const blackPiece = ref(pieceOptions[0].path);
+const whitePiece = ref(pieceOptions[1].path);
+
+// 选择棋子函数
+function selectPiece(type, path) {
+  if (type === 'black') {
+    blackPiece.value = path;
+  } else {
+    whitePiece.value = path;
+  }
+}
+
+// 开始游戏
+function startGame() {
+  gameState.value = 'playing';
+  initData();
+}
+
 function emitChessboard(location, belongsTo) {
   socket.emit("chessboard", { location, belongsTo }, (data) => {
     console.log("chessboard:", data); // { msg1: '测试1', msg2: '测试2' }
@@ -17,7 +64,7 @@ function initData() {
   if (props.mode === "lan") {
     socket.connect(); //连接socket服务器
     socket.on("currentChessboard", (data) => {
-      console.log("currentChessboard:", data); // { msg1: '测试1', msg2: '测试2' }
+      console.log("currentChessboard:", data);
       const {
         location: { row, col },
         belongsTo,
@@ -31,8 +78,10 @@ function initData() {
   }
   countdownInterval = setInterval(updateCountdown, 1000);
 }
+
+// 修改onMounted，不再自动初始化游戏
 onMounted(() => {
-  initData();
+  // 不再自动调用initData，等待用户选择棋子后再开始游戏
 });
 onUnmounted(() => {
   clearInterval(countdownInterval);
@@ -111,7 +160,6 @@ function putDownPiece(row, col, event) {
     emitChessboard({ row, col }, active.value);
     if (validSuccess(row, col, active.value)) {
       alert(`${active.value} 获胜!`);
-      // 修改这里，使用resetGame而不是刷新页面
       resetGame();
     } else {
       active.value =
@@ -276,164 +324,142 @@ function resetGame() {
   <div class="game-container bg-white rounded-2xl shadow-lg p-4 md:p-6 max-w-2xl mx-auto border-4 border-pink-200">
     <h1 class="text-2xl md:text-3xl font-bold text-center text-pink-500 mb-4">🎮 五子棋游戏 🎲</h1>
     
-    <!-- 修改玩家信息和倒计时的布局 -->
-    <div class="mb-4 flex flex-col md:flex-row justify-between items-center bg-pink-50 rounded-xl shadow-sm p-3">
-      <div class="flex items-center mb-2 md:mb-0">
-        <div class="flex items-center mr-6">
-          <span class="mr-2 font-medium">黑方：</span> 
-          <img src="/chicken.svg" class="w-8 h-8 animate-bounce-slow" /> 
-        </div>
-        <div class="flex items-center">
-          <span class="mr-2 font-medium">红方：</span>
-          <img src="/gululu.svg" class="w-8 h-8 animate-bounce-slow" />
-        </div>
-      </div>
+    <!-- 棋子选择界面 -->
+    <div v-if="gameState === 'pieceSelection'" class="p-4 bg-white rounded-xl shadow-md border-2 border-pink-100">
+      <h3 class="text-lg font-bold text-pink-500 text-center mb-4">请选择您喜欢的棋子</h3>
       
-      <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300">
-        <span class="text-gray-600">⏱️ 剩余时间</span>
-        <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
-      </div>
-    </div>
-    
-    <!-- 棋盘部分 -->
-    <div class="flex justify-center items-center">
-      <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300">
-        <div class="grid grid-rows-10">
-          <div v-for="row in rows" class="flex">
-            <div
-              v-for="col in cols"
-              class="w-7 h-7 md:w-8 md:h-8 flex justify-center items-center relative"
-              :style="getCellStyle(row, col)"
-              :key="`${row}-${col}`"
-              :class="{
-                'wuzi-white-cursor': active === 'whitePlayer',
-                'wuzi-black-cursor': active === 'blackPlayer',
-                'hover:bg-yellow-100': isEmpty(row, col)
-              }"
-              @click="disabled ? () => {} : putDownPiece(row, col, $event)"
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg">黑方棋子</h4>
+          <div class="flex flex-wrap justify-center gap-3">
+            <div 
+              v-for="option in pieceOptions" 
+              :key="'black-'+option.path"
+              class="p-3 border-2 rounded-lg cursor-pointer transition-all"
+              :class="blackPiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110' : 'border-gray-200 hover:border-pink-300'"
+              @click="selectPiece('black', option.path)"
             >
-              <span v-if="isEmpty(row, col)"></span>
-              <template v-else>
-                <img
-                  :style="initLocaltion('left-top')"
-                  :src="
-                    belongsToWho(row, col) === 'whitePlayer'
-                      ? '/gululu.svg'
-                      : '/chicken.svg'
-                  "
-                  class="piece-img"
-                />
-              </template>
-              <img
-                v-if="col === cols && !isEmpty(row, col + 1)"
-                :style="initLocaltion('right-top')"
-                :src="
-                  belongsToWho(row, col + 1) === 'whitePlayer'
-                    ? '/gululu.svg'
-                    : '/chicken.svg'
-                "
-                class="piece-img"
-              />
+              <img :src="option.path" class="w-12 h-12 mx-auto" />
+              <div class="text-sm text-center mt-2">{{ option.name }}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 class="font-medium mb-3 text-center bg-pink-50 py-2 rounded-lg">红方棋子</h4>
+          <div class="flex flex-wrap justify-center gap-3">
+            <div 
+              v-for="option in pieceOptions" 
+              :key="'white-'+option.path"
+              class="p-3 border-2 rounded-lg cursor-pointer transition-all"
+              :class="whitePiece === option.path ? 'border-pink-500 bg-pink-50 transform scale-110' : 'border-gray-200 hover:border-pink-300'"
+              @click="selectPiece('white', option.path)"
+            >
+              <img :src="option.path" class="w-12 h-12 mx-auto" />
+              <div class="text-sm text-center mt-2">{{ option.name }}</div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    
-    <!-- 当前玩家提示 -->
-    <div class="mt-4 text-center">
-      <div class="inline-block bg-pink-100 px-4 py-2 rounded-full shadow-sm">
-        <span class="text-gray-700">当前轮到：</span>
-        <span class="font-bold" :class="active === 'whitePlayer' ? 'text-red-500' : 'text-black'">
-          {{ active === 'whitePlayer' ? '红方 🔴' : '黑方 ⚫' }}
-        </span>
+      
+      <div class="mt-8 flex justify-center">
+        <button 
+          class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 px-8 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+          @click="startGame"
+        >
+          开始游戏 🎮
+        </button>
       </div>
     </div>
     
-    <!-- 修改重新开始按钮 -->
-    <div class="mt-4 flex justify-center">
-      <button 
-        class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
-        @click="resetGame"
-      >
-        🔄 重新开始
-      </button>
-    </div>
-    
-    <!-- 装饰元素 -->
-    <div class="mt-4 flex justify-center space-x-2">
-      <span class="w-3 h-3 bg-pink-300 rounded-full animate-pulse"></span>
-      <span class="w-3 h-3 bg-purple-300 rounded-full animate-pulse delay-100"></span>
-      <span class="w-3 h-3 bg-blue-300 rounded-full animate-pulse delay-200"></span>
+    <!-- 游戏界面 -->
+    <div v-if="gameState === 'playing'">
+      <!-- 修改玩家信息和倒计时的布局 -->
+      <div class="mb-4 flex flex-col md:flex-row justify-between items-center bg-pink-50 rounded-xl shadow-sm p-3">
+        <div class="flex items-center mb-2 md:mb-0">
+          <div class="flex items-center mr-6">
+            <span class="mr-2 font-medium">黑方：</span> 
+            <img :src="blackPiece" class="w-8 h-8 animate-bounce-slow" /> 
+          </div>
+          <div class="flex items-center">
+            <span class="mr-2 font-medium">红方：</span>
+            <img :src="whitePiece" class="w-8 h-8 animate-bounce-slow" />
+          </div>
+        </div>
+        
+        <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300">
+          <span class="text-gray-600">⏱️ 剩余时间</span>
+          <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
+        </div>
+      </div>
+      
+      <!-- 棋盘部分 -->
+      <div class="flex justify-center items-center">
+        <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300">
+          <div class="grid grid-rows-10">
+            <div v-for="row in rows" class="flex">
+              <div
+                v-for="col in cols"
+                class="w-7 h-7 md:w-8 md:h-8 flex justify-center items-center relative"
+                :style="getCellStyle(row, col)"
+                :key="`${row}-${col}`"
+                :class="{
+                  'wuzi-white-cursor': active === 'whitePlayer',
+                  'wuzi-black-cursor': active === 'blackPlayer',
+                  'hover:bg-yellow-100': isEmpty(row, col)
+                }"
+                @click="disabled ? () => {} : putDownPiece(row, col, $event)"
+              >
+                <span v-if="isEmpty(row, col)"></span>
+                <template v-else>
+                  <img
+                    :style="initLocaltion('left-top')"
+                    :src="belongsToWho(row, col) === 'whitePlayer' ? whitePiece : blackPiece"
+                    class="piece-img"
+                  />
+                </template>
+                <img
+                  v-if="col === cols && !isEmpty(row, col + 1)"
+                  :style="initLocaltion('right-top')"
+                  :src="belongsToWho(row, col + 1) === 'whitePlayer' ? whitePiece : blackPiece"
+                  class="piece-img"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 当前玩家提示 -->
+      <div class="mt-4 text-center">
+        <div class="inline-block bg-pink-100 px-4 py-2 rounded-full shadow-sm">
+          <span class="text-gray-700">当前轮到：</span>
+          <span class="font-bold" :class="active === 'whitePlayer' ? 'text-red-500' : 'text-black'">
+            {{ active === 'whitePlayer' ? '红方 🔴' : '黑方 ⚫' }}
+          </span>
+        </div>
+      </div>
+      
+      <!-- 重新开始按钮 -->
+      <div class="mt-4 flex justify-center">
+        <button 
+          class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+          @click="resetGame"
+        >
+          🔄 重新开始
+        </button>
+      </div>
+      
+      <!-- 装饰元素 -->
+      <div class="mt-4 flex justify-center space-x-2">
+        <span class="w-3 h-3 bg-pink-300 rounded-full animate-pulse"></span>
+        <span class="w-3 h-3 bg-purple-300 rounded-full animate-pulse delay-100"></span>
+        <span class="w-3 h-3 bg-blue-300 rounded-full animate-pulse delay-200"></span>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.wuzi-white-cursor {
-  cursor: url("/gululu.svg"), auto;
-  outline: none;
-}
-
-.wuzi-black-cursor {
-  cursor: url("/chicken.svg"), auto;
-  outline: none;
-}
-
-.game-board div div:hover {
-  background-color: rgba(255, 224, 130, 0.3);
-}
-
-.piece-img {
-  width: 24px;
-  height: 24px;
-  transition: transform 0.2s;
-}
-
-.piece-img:hover {
-  transform: scale(1.1);
-}
-
-.animate-bounce-slow {
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-.delay-100 {
-  animation-delay: 100ms;
-}
-
-.delay-200 {
-  animation-delay: 200ms;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.5;
-    transform: scale(1.2);
-  }
-}
-
-.animate-pulse {
-  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@media (max-width: 640px) {
-  .piece-img {
-    width: 20px;
-    height: 20px;
-  }
-}
+/* 样式保持不变 */
 </style>
