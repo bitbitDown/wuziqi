@@ -1,4 +1,6 @@
 <script setup>
+import { onMounted } from 'vue';
+
 const props = defineProps({
   rows: Number,
   cols: Number,
@@ -19,9 +21,19 @@ function handlePutDownPiece(row, col, event) {
     emit('putDownPiece', row, col, event);
   }
 }
+
+// 添加组件挂载时的滚动逻辑
+onMounted(() => {
+  // 滚动到页面顶部
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth' // 平滑滚动效果
+  });
+});
 </script>
 
 <template>
+  <!-- 保持原有模板不变 -->
   <div class="flex justify-center items-center">
     <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300 relative transform transition-all hover:shadow-lg">
       <!-- 棋盘装饰 -->

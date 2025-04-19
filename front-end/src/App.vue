@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import Wuziqi from './components/Wuziqi.vue';
+import Wuziqi from './components/index.vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
