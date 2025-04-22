@@ -118,9 +118,9 @@ function updateCountdown() {
 //棋盘
 
 // 行数
-const rows = ref(10);
+const rows = ref(13);
 //列数
-const cols = ref(10);
+const cols = ref(13);
 
 //轮到哪方下棋了
 const active = ref("whitePlayer");
