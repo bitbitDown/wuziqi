@@ -3,8 +3,11 @@ defineProps({
   active: String,
   blackPiece: String,
   whitePiece: String,
-  countdown: String
+  countdown: String,
+  soundEnabled: Boolean
 });
+
+defineEmits(['toggleSound']);
 </script>
 
 <template>
@@ -24,9 +27,20 @@ defineProps({
       </div>
     </div>
     
-    <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300 relative z-10">
-      <span class="text-gray-600">⏱️ 剩余时间</span>
-      <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
+    <div class="flex items-center">
+      <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300 relative z-10 mr-3">
+        <span class="text-gray-600">⏱️ 剩余时间</span>
+        <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
+      </div>
+      
+      <!-- 添加声音控制按钮 -->
+      <button 
+        @click="$emit('toggleSound')" 
+        class="bg-white p-2 rounded-full shadow-sm border-2 border-pink-300 hover:bg-pink-50 transition-colors"
+        :title="soundEnabled ? '关闭声音' : '开启声音'"
+      >
+        <span class="text-xl">{{ soundEnabled ? '🔊' : '🔇' }}</span>
+      </button>
     </div>
   </div>
 </template>

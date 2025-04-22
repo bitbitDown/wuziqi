@@ -1,6 +1,11 @@
 <script setup>
 import { ref, onMounted, inject, onUnmounted, computed } from "vue";
 import PieceSelection from './game/PieceSelection.vue';
+import GameControls from './game/GameControls.vue';
+
+import { useSound } from '@vueuse/sound'
+import pop_down1 from '@/assets/sounds/pop_down1.mp3'
+import pop_down2 from '@/assets/sounds/pop_down2.mp3'
 
 const socket = inject("socket");
 const disabled = ref(false);
@@ -148,8 +153,26 @@ function initLocaltion(location) {
     [location === "left-top" ? "left" : "right"]: "-50%",
   };
 }
+
+ //处理声音
+ const { play:play1 } = useSound(pop_down1)
+ const { play: play2 } = useSound(pop_down2)
 //放下棋子
+// 添加声音控制状态
+const soundEnabled = ref(true);
+
+// 切换声音状态
+function toggleSound() {
+  soundEnabled.value = !soundEnabled.value;
+}
+
+// 修改放下棋子的函数，根据声音状态决定是否播放音效
 function putDownPiece(row, col, event) {
+  // 只有在声音开启时才播放音效
+  if (soundEnabled.value) {
+    active.value === 'blackPlayer' ? play2() : play1();
+  }
+  
   const location = getCornerClicked(event.target, event.clientX, event.clientY);
   //处理行列，由单元格行变为边框，每个单元格跨2行2列
   if (["bottomLeft", "bottomRight"].includes(location)) {
@@ -689,33 +712,20 @@ function hasAdjacentPiece(row, col) {
       @setAIDifficulty="setAIDifficulty"
       @startGame="startGame"
     />
-    
     <!-- 游戏界面 -->
     <div v-if="gameState === 'playing'" class="animate-fadeIn">
-      <!-- 修改玩家信息和倒计时的布局 -->
-      <div class="mb-4 flex flex-col md:flex-row justify-between items-center bg-pink-50 rounded-xl shadow-sm p-3 relative overflow-hidden">
-        <div class="absolute -right-4 -bottom-4 w-16 h-16 bg-pink-200 rounded-full opacity-30"></div>
-        
-        <div class="flex items-center mb-2 md:mb-0 relative z-10">
-          <div class="flex items-center mr-6 bg-white px-3 py-1 rounded-lg shadow-sm">
-            <span class="mr-2 font-medium">黑方：</span> 
-            <img :src="blackPiece" class="w-8 h-8 animate-bounce-slow" /> 
-            <span v-if="active === 'blackPlayer'" class="ml-1 text-xs bg-green-500 text-white px-1 rounded animate-pulse">思考中</span>
-          </div>
-          <div class="flex items-center bg-white px-3 py-1 rounded-lg shadow-sm">
-            <span class="mr-2 font-medium">红方：</span>
-            <img :src="whitePiece" class="w-8 h-8 animate-bounce-slow" />
-            <span v-if="active === 'whitePlayer'" class="ml-1 text-xs bg-green-500 text-white px-1 rounded animate-pulse">思考中</span>
-          </div>
-        </div>
-        
-        <div class="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-pink-300 relative z-10">
-          <span class="text-gray-600">⏱️ 剩余时间</span>
-          <span class="text-pink-500 ml-3 font-bold"> {{ countdown }}</span>
-        </div>
-      </div>
+      <!-- 使用 GameControls 组件 -->
+      <GameControls 
+        :active="active" 
+        :blackPiece="blackPiece" 
+        :whitePiece="whitePiece" 
+        :countdown="countdown"
+        :soundEnabled="soundEnabled"
+        @toggleSound="toggleSound"
+      />
       
-      <!-- 棋盘部分 -->
+     
+      
       <div class="flex justify-center items-center">
         <div class="bg-[#ffe4c7] rounded-lg shadow-md p-2 border-2 border-amber-300 relative transform transition-all hover:shadow-lg">
           <!-- 添加棋盘装饰 -->
@@ -758,7 +768,6 @@ function hasAdjacentPiece(row, col) {
         </div>
       </div>
       
-      <!-- 当前玩家提示 -->
       <div class="mt-4 text-center">
         <div class="inline-block bg-pink-100 px-4 py-2 rounded-full shadow-sm transform transition-all hover:scale-105">
           <span class="text-gray-700">当前轮到：</span>
@@ -768,46 +777,45 @@ function hasAdjacentPiece(row, col) {
         </div>
       </div>
       
-      <!-- 操作按钮区 -->
-      <div class="mt-4 flex justify-center space-x-4">
-        <button 
-          class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
-          @click="resetGame"
-        >
-          🔄 重新开始
-        </button>
+      <div class="operation-area">
+        <div class="mt-4 flex justify-center space-x-4">
+          <button 
+            class="transition-all duration-300 bg-gradient-to-r from-pink-400 to-purple-400 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+            @click="resetGame"
+          >
+            🔄 重新开始
+          </button>
+          
+          <button 
+            class="transition-all duration-300 bg-gradient-to-r from-blue-400 to-teal-400 hover:from-blue-500 hover:to-teal-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
+            @click="backToSelection"
+          >
+            🏠 返回选择
+          </button>
+        </div>
         
-        <button 
-          class="transition-all duration-300 bg-gradient-to-r from-blue-400 to-teal-400 hover:from-blue-500 hover:to-teal-500 text-white font-bold py-2 px-6 rounded-full shadow-md hover:shadow-lg transform hover:-translate-y-1"
-          @click="backToSelection"
-        >
-          🏠 返回选择
-        </button>
-      </div>
-      
-      <!-- 装饰元素 -->
-      <div class="mt-4 flex justify-center space-x-2">
-        <span class="w-3 h-3 bg-pink-300 rounded-full animate-pulse"></span>
-        <span class="w-3 h-3 bg-purple-300 rounded-full animate-pulse delay-100"></span>
-        <span class="w-3 h-3 bg-blue-300 rounded-full animate-pulse delay-200"></span>
-      </div>
-      
-      <!-- 添加社交分享区 -->
-      <div class="mt-6 text-center">
-        <p class="text-sm text-gray-500 mb-2">喜欢这个游戏？请分享给朋友！</p>
-        <div class="flex justify-center space-x-3">
-          <button class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors">
-            <span>👍</span>
-          </button>
-          <button class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors">
-            <span>⭐</span>
-          </button>
-          <button class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
-            <span>❤️</span>
-          </button>
-          <button class="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center hover:bg-yellow-600 transition-colors">
-            <span>🔄</span>
-          </button>
+        <div class="mt-4 flex justify-center space-x-2">
+          <span class="w-3 h-3 bg-pink-300 rounded-full animate-pulse"></span>
+          <span class="w-3 h-3 bg-purple-300 rounded-full animate-pulse delay-100"></span>
+          <span class="w-3 h-3 bg-blue-300 rounded-full animate-pulse delay-200"></span>
+        </div>
+        
+        <div class="mt-6 text-center">
+          <p class="text-sm text-gray-500 mb-2">喜欢这个游戏？请分享给朋友！</p>
+          <div class="flex justify-center space-x-3">
+            <button class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors">
+              <span>👍</span>
+            </button>
+            <button class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors">
+              <span>⭐</span>
+            </button>
+            <button class="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
+              <span>❤️</span>
+            </button>
+            <button class="w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center hover:bg-yellow-600 transition-colors">
+              <span>🔄</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
