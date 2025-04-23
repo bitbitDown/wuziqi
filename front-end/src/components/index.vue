@@ -3,13 +3,13 @@ import { ref, onMounted, inject, onUnmounted, computed } from "vue";
 import PieceSelection from './game/PieceSelection.vue';
 import GameControls from './game/GameControls.vue';
 import { useAi } from '../composables/useAi';
+import { useChessboard } from '../composables/useChessboard';
 
 import { useSound } from '@vueuse/sound'
 import pop_down1 from '@/assets/sounds/pop_down1.mp3'
 import pop_down2 from '@/assets/sounds/pop_down2.mp3'
 
 const socket = inject("socket");
-const disabled = ref(false);
 const props = defineProps({
   mode: {
     type: String,
@@ -39,7 +39,6 @@ const dynamicPieceOptions = imageUrls.map(url => {
 });
 
 // 添加棋子选择相关变量
-
 const pieceOptions = [
   ...dynamicPieceOptions
 ];
@@ -71,11 +70,49 @@ function startGame() {
   }
 }
 
-function emitChessboard(location, belongsTo) {
-  socket.emit("chessboard", { location, belongsTo }, (data) => {
-    console.log("chessboard:", data); // { msg1: '测试1', msg2: '测试2' }
-  });
+// 使用 useChessboard 组合式函数
+const active = ref("whitePlayer");
+const disabled = ref(false);
+
+function resetGame() {
+  // 重置棋盘
+  resetChessboard();
+  
+  // 重置当前玩家
+  active.value = "whitePlayer";
+  
+  // 重置禁用状态
+  disabled.value = false;
+  
+  // 重置计时器
+  clearInterval(countdownInterval);
+  countdownTime = moment().add(15, "minutes");
+  countdownInterval = setInterval(updateCountdown, 1000);
+  
+  // 如果是联机模式，可能需要通知服务器重置游戏
+  if (props.mode === "lan") {
+    socket.emit("resetGame");
+  }
 }
+
+// 从 useChessboard 获取棋盘相关功能（只调用一次）
+const {
+  rows,
+  cols,
+  boxMap,
+  isEmpty,
+  belongsToWho,
+  getCellStyle,
+  initLocaltion,
+  emitChessboard,
+  validSuccess,
+  resetChessboard,
+  putDownPiece: originalPutDownPiece
+} = useChessboard(socket, active, disabled, resetGame);
+
+// 使用useAi组合式函数
+const { isAIMode, aiDifficulty, toggleAIMode, setAIDifficulty, aiMove } = useAi(boxMap, rows, cols);
+
 function initData() {
   if (props.mode === "lan") {
     socket.connect(); //连接socket服务器
@@ -95,12 +132,12 @@ function initData() {
   countdownInterval = setInterval(updateCountdown, 1000);
 }
 
-
 onUnmounted(() => {
   clearInterval(countdownInterval);
 });
+
 //对局时间
-let countdownTime = moment().add(15, "minutes"); // 将const改为let，使其可以重新赋值
+let countdownTime = moment().add(15, "minutes");
 const countdown = ref("");
 let countdownInterval;
 
@@ -116,53 +153,10 @@ function updateCountdown() {
     alert("Time is up!");
   }
 }
-//棋盘
 
-// 行数
-const rows = ref(13);
-//列数
-const cols = ref(13);
-
-//轮到哪方下棋了
-const active = ref("whitePlayer");
-
-const boxMap = new Map();
-let row = 1;
-let col = 1;
-while (row <= rows.value) {
-  while (col <= cols.value + 1) {
-    boxMap.set(`row${row}col${col}`, { empty: true, belongsTo: null });
-    col++;
-  }
-  row++;
-  col = 1;
-}
-
-// 使用useAi组合式函数
-const { isAIMode, aiDifficulty, toggleAIMode, setAIDifficulty, aiMove } = useAi(boxMap, rows, cols);
-
-const isEmpty = (row, col) => {
-  return boxMap.get(`row${row}col${col}`)?.empty;
-};
-const belongsToWho = computed(() => {
-  return (row, col) => {
-    return boxMap.get(`row${row}col${col}`)?.belongsTo;
-  };
-});
-
-function initLocaltion(location) {
-  return {
-    position: "absolute",
-    top: "-50%",
-    [location === "left-top" ? "left" : "right"]: "-50%",
-  };
-}
-
- //处理声音
- const { play:play1 } = useSound(pop_down1)
- const { play: play2 } = useSound(pop_down2)
-//放下棋子
-// 添加声音控制状态
+// 处理声音
+const { play:play1 } = useSound(pop_down1)
+const { play: play2 } = useSound(pop_down2)
 const soundEnabled = ref(true);
 
 // 切换声音状态
@@ -170,195 +164,23 @@ function toggleSound() {
   soundEnabled.value = !soundEnabled.value;
 }
 
-// 修改放下棋子的函数，根据声音状态决定是否播放音效
+// 修改放下棋子的函数，添加声音效果和AI响应
 function putDownPiece(row, col, event) {
   // 只有在声音开启时才播放音效
   if (soundEnabled.value) {
     active.value === 'blackPlayer' ? play2() : play1();
   }
   
-  const location = getCornerClicked(event.target, event.clientX, event.clientY);
-  //处理行列，由单元格行变为边框，每个单元格跨2行2列
-  if (["bottomLeft", "bottomRight"].includes(location)) {
-    row += 1;
-  }
-  if (["topRight", "bottomRight"].includes(location)) {
-    col += 1;
-  }
-  if (boxMap.get(`row${row}col${col}`)?.empty) {
-    boxMap.set(`row${row}col${col}`, {
-      empty: false,
-      belongsTo: active.value,
-      location,
-    });
-    emitChessboard({ row, col }, active.value);
-    if (validSuccess(row, col, active.value)) {
-      alert(`${active.value} 获胜!`);
-      resetGame();
-    } else {
-      active.value =
-        active.value === "whitePlayer" ? "blackPlayer" : "whitePlayer";
-      
-      // 添加AI响应逻辑
-      // 如果是AI模式且轮到AI（黑方）
-      if (isAIMode.value && active.value === 'blackPlayer') {
-        aiMove(active, emitChessboard, validSuccess, resetGame);
-      }
-    }
-  }
-}
-//判断是否为
-function validSuccess(row, col, active) {
-  // 检查水平方向
-  let count = 1;
-  for (
-    let i = col - 1;
-    i >= 0 && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
-    i--
-  ) {
-    count++;
-  }
-  for (
-    let i = col + 1;
-    i <= cols.value && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  if (count >= 5) return true;
-
-  // 检查垂直方向
-  count = 1;
-  for (
-    let i = row - 1;
-    i >= 0 && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
-    i--
-  ) {
-    count++;
-  }
-  for (
-    let i = row + 1;
-    i <= rows.value && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  if (count >= 5) return true;
-
-  // 检查斜线方向
-  count = 1;
-  for (
-    let i = 1;
-    row - i >= 0 &&
-    col - i >= 0 &&
-    boxMap.get(`row${row - i}col${col - i}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  for (
-    let i = 1;
-    row + i <= rows.value &&
-    col + i <= cols.value &&
-    boxMap.get(`row${row + i}col${col + i}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  if (count >= 5) return true;
-
-  count = 1;
-  for (
-    let i = 1;
-    row - i >= 0 &&
-    col + i <= cols.value &&
-    boxMap.get(`row${row - i}col${col + i}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  for (
-    let i = 1;
-    row + i <= rows.value &&
-    col - i >= 0 &&
-    boxMap.get(`row${row + i}col${col - i}`)?.belongsTo === active;
-    i++
-  ) {
-    count++;
-  }
-  if (count >= 5) return true;
-
-  return false;
-}
-function getCornerClicked(element, clientX, clientY) {
-  const rect = element.getBoundingClientRect();
-  // 计算点击位置相对于元素四角的距离
-  const topLeftDistance = Math.sqrt(
-    Math.pow(clientX - rect.left, 2) + Math.pow(clientY - rect.top, 2)
-  );
-  const topRightDistance = Math.sqrt(
-    Math.pow(clientX - rect.right, 2) + Math.pow(clientY - rect.top, 2)
-  );
-  const bottomLeftDistance = Math.sqrt(
-    Math.pow(clientX - rect.left, 2) + Math.pow(clientY - rect.bottom, 2)
-  );
-  const bottomRightDistance = Math.sqrt(
-    Math.pow(clientX - rect.right, 2) + Math.pow(clientY - rect.bottom, 2)
-  );
-
-  // 找出最短距离对应的角落
-  const minDistance = Math.min(
-    topLeftDistance,
-    topRightDistance,
-    bottomLeftDistance,
-    bottomRightDistance
-  );
-  if (minDistance === topLeftDistance) {
-    return "topLeft";
-  } else if (minDistance === topRightDistance) {
-    return "topRight";
-  } else if (minDistance === bottomLeftDistance) {
-    return "bottomLeft";
-  } else if (minDistance === bottomRightDistance) {
-    return "bottomRight";
-  } else {
-    return "none";
-  }
-}
-function getCellStyle(row, col) {
-  // return { border:col===cols?'none':'1px solid #655b51'}
-  const prop = "1px solid #655b51";
-  const style = {
-    "border-left": prop,
-    "border-top": prop,
-  };
-  row === rows.value && (style["border-bottom"] = prop);
-  col === cols.value && (style["border-right"] = prop);
-  return style;
-}
-// 添加重置游戏的函数
-function resetGame() {
-  // 重置棋盘
-  boxMap.forEach((value, key) => {
-    boxMap.set(key, { empty: true, belongsTo: null });
-  });
+  // 调用原始的 putDownPiece 函数
+  originalPutDownPiece(row, col, event);
   
-  // 重置当前玩家
-  active.value = "whitePlayer";
-  
-  // 重置禁用状态
-  disabled.value = false;
-  
-  // 重置计时器
-  clearInterval(countdownInterval);
-  countdownTime = moment().add(15, "minutes"); // 现在可以正确重新赋值
-  countdownInterval = setInterval(updateCountdown, 1000);
-  
-  // 如果是联机模式，可能需要通知服务器重置游戏
-  if (props.mode === "lan") {
-    socket.emit("resetGame");
+  // 添加AI响应逻辑
+  // 如果是AI模式且轮到AI（黑方）
+  if (isAIMode.value && active.value === 'blackPlayer') {
+    aiMove(active, emitChessboard, validSuccess, resetGame);
   }
 }
+
 // 添加返回主界面的函数
 function backToSelection() {
   // 先重置游戏状态
@@ -371,173 +193,8 @@ function backToSelection() {
   gameState.value = 'pieceSelection';
 }
 
-
-// 判断是否为游戏早期阶段（棋盘上棋子少于10个）
-function isEarlyGame() {
-  let pieceCount = 0;
-  for (let r = 1; r <= rows.value; r++) {
-    for (let c = 1; c <= cols.value; c++) {
-      if (!boxMap.get(`row${r}col${c}`)?.empty) {
-        pieceCount++;
-        if (pieceCount >= 10) return false;
-      }
-    }
-  }
-  return true;
-}
-
-// 寻找中心区域的位置
-function findCenterAreaMove() {
-  const centerRow = Math.ceil(rows.value / 2);
-  const centerCol = Math.ceil(cols.value / 2);
-  const centerArea = [];
-  
-  // 检查中心点
-  if (boxMap.get(`row${centerRow}col${centerCol}`)?.empty) {
-    return { row: centerRow, col: centerCol };
-  }
-  
-  // 检查中心点周围的位置
-  for (let r = centerRow - 2; r <= centerRow + 2; r++) {
-    for (let c = centerCol - 2; c <= centerCol + 2; c++) {
-      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
-        if (boxMap.get(`row${r}col${c}`)?.empty) {
-          centerArea.push({ row: r, col: c });
-        }
-      }
-    }
-  }
-  
-  if (centerArea.length > 0) {
-    return centerArea[Math.floor(Math.random() * centerArea.length)];
-  }
-  
-  return null;
-}
-
-// 寻找可以连成N子的位置
-function findNInARowMove(player, n) {
-  // 检查所有空位
-  for (let r = 1; r <= rows.value; r++) {
-    for (let c = 1; c <= cols.value; c++) {
-      if (boxMap.get(`row${r}col${c}`)?.empty) {
-        // 临时放置棋子
-        boxMap.set(`row${r}col${c}`, { empty: false, belongsTo: player });
-        
-        // 检查是否形成了N子连线
-        if (hasNInARow(r, c, player, n)) {
-          // 恢复空位
-          boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
-          return { row: r, col: c };
-        }
-        
-        // 恢复空位
-        boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
-      }
-    }
-  }
-  
-  return null;
-}
-
-// 检查是否有N子连线
-function hasNInARow(row, col, player, n) {
-  const directions = [
-    [0, 1],  // 水平
-    [1, 0],  // 垂直
-    [1, 1],  // 对角线
-    [1, -1]  // 反对角线
-  ];
-  
-  for (const [dr, dc] of directions) {
-    let count = 1;
-    
-    // 正向检查
-    for (let i = 1; i < 5; i++) {
-      const r = row + dr * i;
-      const c = col + dc * i;
-      
-      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
-        if (boxMap.get(`row${r}col${c}`)?.belongsTo === player) {
-          count++;
-        } else {
-          break;
-        }
-      } else {
-        break;
-      }
-    }
-    
-    // 反向检查
-    for (let i = 1; i < 5; i++) {
-      const r = row - dr * i;
-      const c = col - dc * i;
-      
-      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
-        if (boxMap.get(`row${r}col${c}`)?.belongsTo === player) {
-          count++;
-        } else {
-          break;
-        }
-      } else {
-        break;
-      }
-    }
-    
-    // 如果连线数量等于n，返回true
-    if (count === n) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-// 寻找战略性随机位置（靠近已有棋子的空位）
-function findStrategicRandomMove() {
-  const allEmptyPositions = [];
-  const strategicPositions = [];
-  
-  // 收集所有空位和战略位置
-  for (let r = 1; r <= rows.value; r++) {
-    for (let c = 1; c <= cols.value; c++) {
-      if (boxMap.get(`row${r}col${c}`)?.empty) {
-        allEmptyPositions.push({ row: r, col: c });
-        
-        // 检查周围是否有棋子
-        if (hasAdjacentPiece(r, c)) {
-          strategicPositions.push({ row: r, col: c });
-        }
-      }
-    }
-  }
-  
-  // 优先选择战略位置，如果没有则随机选择
-  if (strategicPositions.length > 0) {
-    return strategicPositions[Math.floor(Math.random() * strategicPositions.length)];
-  } else if (allEmptyPositions.length > 0) {
-    return allEmptyPositions[Math.floor(Math.random() * allEmptyPositions.length)];
-  }
-  
-  return null;
-}
-
-// 检查周围是否有棋子
-function hasAdjacentPiece(row, col) {
-  for (let r = row - 1; r <= row + 1; r++) {
-    for (let c = col - 1; c <= col + 1; c++) {
-      if (r >= 1 && r <= rows.value && c >= 1 && c <= cols.value) {
-        if (r !== row || c !== col) {  // 排除自身
-          if (!boxMap.get(`row${r}col${c}`)?.empty) {
-            return true;
-          }
-        }
-      }
-    }
-  }
-  return false;
-}
 </script>
+
 <template>
   <div class="game-container bg-white rounded-2xl shadow-lg p-4 md:p-6 max-w-2xl mx-auto border-4 border-pink-200 relative overflow-hidden">
     <!-- 添加装饰性气泡背景 -->
