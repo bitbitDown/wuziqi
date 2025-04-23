@@ -2,6 +2,7 @@
 import { ref, onMounted, inject, onUnmounted, computed } from "vue";
 import PieceSelection from './game/PieceSelection.vue';
 import GameControls from './game/GameControls.vue';
+import { useAi } from '../composables/useAi';
 
 import { useSound } from '@vueuse/sound'
 import pop_down1 from '@/assets/sounds/pop_down1.mp3'
@@ -66,7 +67,7 @@ function startGame() {
   
   // 如果是AI模式且AI先手，让AI下第一步棋
   if (isAIMode.value && active.value === 'blackPlayer') {
-    aiMove();
+    aiMove(active, emitChessboard, validSuccess, resetGame);
   }
 }
 
@@ -137,6 +138,9 @@ while (row <= rows.value) {
   col = 1;
 }
 
+// 使用useAi组合式函数
+const { isAIMode, aiDifficulty, toggleAIMode, setAIDifficulty, aiMove } = useAi(boxMap, rows, cols);
+
 const isEmpty = (row, col) => {
   return boxMap.get(`row${row}col${col}`)?.empty;
 };
@@ -198,7 +202,7 @@ function putDownPiece(row, col, event) {
       // 添加AI响应逻辑
       // 如果是AI模式且轮到AI（黑方）
       if (isAIMode.value && active.value === 'blackPlayer') {
-        aiMove();
+        aiMove(active, emitChessboard, validSuccess, resetGame);
       }
     }
   }
@@ -367,159 +371,6 @@ function backToSelection() {
   gameState.value = 'pieceSelection';
 }
 
-// 添加AI相关功能
-const isAIMode = ref(false); // 是否启用AI模式
-const aiDifficulty = ref('medium'); // AI难度: 'easy', 'medium', 'hard'
-
-// 切换AI模式
-function toggleAIMode() {
-  isAIMode.value = !isAIMode.value;
-}
-
-// 设置AI难度
-function setAIDifficulty(difficulty) {
-  aiDifficulty.value = difficulty;
-}
-
-// AI下棋逻辑
-function aiMove() {
-  if (!isAIMode.value || active.value !== 'blackPlayer') return;
-  
-  // 延迟一下，模拟AI思考时间
-  setTimeout(() => {
-    // 根据难度选择不同的AI策略
-    let move;
-    
-    switch(aiDifficulty.value) {
-      case 'easy':
-        move = findRandomMove();
-        break;
-      case 'medium':
-        move = findBetterMove();
-        break;
-      case 'hard':
-        move = findBestMove();
-        break;
-      default:
-        move = findBetterMove();
-    }
-    
-    if (move) {
-      // 修改这部分代码，不再尝试查找DOM元素
-      // 直接使用简化版本设置棋子
-      const location = 'topLeft'; // 默认位置
-      
-      boxMap.set(`row${move.row}col${move.col}`, {
-        empty: false,
-        belongsTo: active.value,
-        location,
-      });
-      
-      // 如果需要，发送联机消息
-      emitChessboard({ row: move.row, col: move.col }, active.value);
-      
-      if (validSuccess(move.row, move.col, active.value)) {
-        alert(`${active.value} 获胜!`);
-        resetGame();
-      } else {
-        active.value = 'whitePlayer';
-      }
-    }
-  }, 800); // 思考时间800毫秒
-}
-
-// 随机找一个空位下棋（简单难度）
-function findRandomMove() {
-  const emptyPositions = [];
-  
-  // 收集所有空位
-  for (let r = 1; r <= rows.value; r++) {
-    for (let c = 1; c <= cols.value; c++) {
-      if (boxMap.get(`row${r}col${c}`)?.empty) {
-        emptyPositions.push({ row: r, col: c });
-      }
-    }
-  }
-  
-  // 随机选择一个空位
-  if (emptyPositions.length > 0) {
-    const randomIndex = Math.floor(Math.random() * emptyPositions.length);
-    return emptyPositions[randomIndex];
-  }
-  
-  return null;
-}
-
-// 寻找更好的位置（中等难度）
-function findBetterMove() {
-  // 先检查是否有可以连成五子的位置
-  const winningMove = findWinningMove('blackPlayer');
-  if (winningMove) return winningMove;
-  
-  // 再检查是否需要阻止对手连成五子
-  const blockingMove = findWinningMove('whitePlayer');
-  if (blockingMove) return blockingMove;
-  
-  // 否则随机选择一个位置
-  return findRandomMove();
-}
-
-// 添加缺失的findWinningMove函数
-function findWinningMove(player) {
-  // 检查所有空位
-  for (let r = 1; r <= rows.value; r++) {
-    for (let c = 1; c <= cols.value; c++) {
-      if (boxMap.get(`row${r}col${c}`)?.empty) {
-        // 临时放置棋子
-        boxMap.set(`row${r}col${c}`, { empty: false, belongsTo: player });
-        
-        // 检查是否获胜
-        const isWinning = validSuccess(r, c, player);
-        
-        // 恢复空位
-        boxMap.set(`row${r}col${c}`, { empty: true, belongsTo: null });
-        
-        if (isWinning) {
-          return { row: r, col: c };
-        }
-      }
-    }
-  }
-  
-  return null;
-}
-
-// 寻找最佳位置（困难难度）
-function findBestMove() {
-  // 先检查是否有可以连成五子的位置
-  const winningMove = findWinningMove('blackPlayer');
-  if (winningMove) return winningMove;
-  
-  // 再检查是否需要阻止对手连成五子
-  const blockingMove = findWinningMove('whitePlayer');
-  if (blockingMove) return blockingMove;
-  
-  // 检查是否有可以连成四子的位置
-  const fourInARowMove = findNInARowMove('blackPlayer', 4);
-  if (fourInARowMove) return fourInARowMove;
-  
-  // 检查是否需要阻止对手连成四子
-  const blockingFourMove = findNInARowMove('whitePlayer', 4);
-  if (blockingFourMove) return blockingFourMove;
-  
-  // 检查是否有可以连成三子的位置
-  const threeInARowMove = findNInARowMove('blackPlayer', 3);
-  if (threeInARowMove) return threeInARowMove;
-  
-  // 如果是游戏开始阶段，优先选择中心位置或其周围
-  if (isEarlyGame()) {
-    const centerMove = findCenterAreaMove();
-    if (centerMove) return centerMove;
-  }
-  
-  // 否则随机选择一个位置，但优先选择靠近已有棋子的位置
-  return findStrategicRandomMove();
-}
 
 // 判断是否为游戏早期阶段（棋盘上棋子少于10个）
 function isEarlyGame() {
