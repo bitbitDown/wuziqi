@@ -4,6 +4,7 @@ import PieceSelection from './game/PieceSelection.vue';
 import GameControls from './game/GameControls.vue';
 import { useAi } from '../composables/useAi';
 import { useChessboard } from '../composables/useChessboard';
+import { useGameState } from '../composables/useGameState'; // 导入 useGameState
 
 import { useSound } from '@vueuse/sound'
 import pop_down1 from '@/assets/sounds/pop_down1.mp3'
@@ -16,8 +17,18 @@ const props = defineProps({
   },
 });
 
-// 添加游戏状态控制
-const gameState = ref('pieceSelection'); // 'pieceSelection', 'playing'
+// 使用 useGameState 组合式函数
+const {
+  gameState,
+  active,
+  disabled,
+  countdown,
+  resetGame,
+  backToSelection,
+  startGame,
+  updateCountdown
+} = useGameState(socket, props);
+
 // 导入所有图片资源
 const prefix = '/public'
 const images = import.meta.glob(`/public/*.svg`, { eager: true });
@@ -55,12 +66,9 @@ function selectPiece(type, path) {
   }
 }
 
-// 开始游戏
-function startGame() {
-  gameState.value = 'playing';
-  
-  // 在AI模式下，玩家总是红方(whitePlayer)，AI总是黑方(blackPlayer)
-  active.value = "whitePlayer";
+// 修改开始游戏函数，使用 useGameState 提供的 startGame
+function handleStartGame() {
+  startGame(); // 调用 useGameState 中的 startGame
   
   initData();
   
@@ -70,32 +78,7 @@ function startGame() {
   }
 }
 
-// 使用 useChessboard 组合式函数
-const active = ref("whitePlayer");
-const disabled = ref(false);
-
-function resetGame() {
-  // 重置棋盘
-  resetChessboard();
-  
-  // 重置当前玩家
-  active.value = "whitePlayer";
-  
-  // 重置禁用状态
-  disabled.value = false;
-  
-  // 重置计时器
-  clearInterval(countdownInterval);
-  countdownTime = moment().add(15, "minutes");
-  countdownInterval = setInterval(updateCountdown, 1000);
-  
-  // 如果是联机模式，可能需要通知服务器重置游戏
-  if (props.mode === "lan") {
-    socket.emit("resetGame");
-  }
-}
-
-// 从 useChessboard 获取棋盘相关功能（只调用一次）
+// 从 useChessboard 获取棋盘相关功能
 const {
   rows,
   cols,
@@ -107,6 +90,7 @@ const {
   emitChessboard,
   validSuccess,
   resetChessboard,
+  getCornerClicked,
   putDownPiece: originalPutDownPiece
 } = useChessboard(socket, active, disabled, resetGame);
 
@@ -128,29 +112,6 @@ function initData() {
       active.value =
         active.value === "whitePlayer" ? "blackPlayer" : "whitePlayer";
     });
-  }
-  countdownInterval = setInterval(updateCountdown, 1000);
-}
-
-onUnmounted(() => {
-  clearInterval(countdownInterval);
-});
-
-//对局时间
-let countdownTime = moment().add(15, "minutes");
-const countdown = ref("");
-let countdownInterval;
-
-function updateCountdown() {
-  const now = moment();
-  const duration = moment.duration(countdownTime.diff(now));
-  const minutes = Math.floor(duration.asMinutes());
-  const seconds = Math.floor(duration.asSeconds()) % 60;
-  countdown.value = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-
-  if (minutes <= 0 && seconds <= 0) {
-    clearInterval(countdownInterval);
-    alert("Time is up!");
   }
 }
 
@@ -181,18 +142,11 @@ function putDownPiece(row, col, event) {
   }
 }
 
-// 添加返回主界面的函数
-function backToSelection() {
-  // 先重置游戏状态
-  resetGame();
-  
-  // 清除计时器
-  clearInterval(countdownInterval);
-  
-  // 切换回选择界面
-  gameState.value = 'pieceSelection';
+// 修改 resetGame 函数，结合 useChessboard 的 resetChessboard
+function handleResetGame() {
+  resetChessboard(); // 重置棋盘
+  resetGame(); // 调用 useGameState 中的 resetGame
 }
-
 </script>
 
 <template>
@@ -218,7 +172,7 @@ function backToSelection() {
       @selectPiece="selectPiece"
       @toggleAIMode="toggleAIMode"
       @setAIDifficulty="setAIDifficulty"
-      @startGame="startGame"
+      @startGame="handleStartGame"
     />
     <!-- 游戏界面 -->
     <div v-if="gameState === 'playing'" class="animate-fadeIn">
@@ -230,6 +184,8 @@ function backToSelection() {
         :countdown="countdown"
         :soundEnabled="soundEnabled"
         @toggleSound="toggleSound"
+        @backToSelection="backToSelection"
+        @resetGame="handleResetGame"
       />
       
      
