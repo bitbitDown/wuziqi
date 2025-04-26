@@ -2,9 +2,9 @@ import { ref, computed } from 'vue';
 
 export function useChessboard(socket, active, disabled, resetGame) {
   // 行数和列数
-  const rows = ref(10);
-  const cols = ref(10);
-  
+  const rows = ref(12);
+  const cols = ref(12);
+
   // 初始化棋盘
   const boxMap = new Map();
   let row = 1;
@@ -17,17 +17,17 @@ export function useChessboard(socket, active, disabled, resetGame) {
     row++;
     col = 1;
   }
-  
+
   // 检查格子是否为空
   const isEmpty = (row, col) => {
     return boxMap.get(`row${row}col${col}`)?.empty;
   };
-  
+
   // 检查格子属于谁
   const belongsToWho = (row, col) => {
     return boxMap.get(`row${row}col${col}`)?.belongsTo;
   };
-  
+
   // 初始化位置样式
   function initLocaltion(location) {
     return {
@@ -36,7 +36,7 @@ export function useChessboard(socket, active, disabled, resetGame) {
       [location === "left-top" ? "left" : "right"]: "-50%",
     };
   }
-  
+
   // 获取单元格样式
   function getCellStyle(row, col) {
     const prop = "1px solid #655b51";
@@ -48,7 +48,7 @@ export function useChessboard(socket, active, disabled, resetGame) {
     col === cols.value && (style["border-right"] = prop);
     return style;
   }
-  
+
   // 获取点击的角落
   function getCornerClicked(element, clientX, clientY) {
     const rect = element.getBoundingClientRect();
@@ -85,14 +85,14 @@ export function useChessboard(socket, active, disabled, resetGame) {
       return "none";
     }
   }
-  
+
   // 发送棋盘信息
   function emitChessboard(location, belongsTo) {
     socket.emit("chessboard", { location, belongsTo }, (data) => {
       console.log("chessboard:", data);
     });
   }
-  
+
   // 放下棋子
   function putDownPiece(row, col, event) {
     const location = getCornerClicked(event.target, event.clientX, event.clientY);
@@ -119,51 +119,63 @@ export function useChessboard(socket, active, disabled, resetGame) {
       }
     }
   }
-  
+
   // 判断是否获胜
   function validSuccess(row, col, active) {
     // 检查水平方向
     let count = 1;
+
+    // 水平方向最小列，最大列，默认已经有一个棋子了，所以只需要增减4
+    const minCol = col - 4 > 0 ? col - 4 : 0;
+    const maxCol = col + 4 < cols.value ? col + 4 : cols.value;
+
+    // 水平方向最小列，最大列
+    const minRow = row - 4 > 0 ? row - 4 : 0;
+    const maxRow = row + 4 < rows.value ? row + 4 : rows.value;
+
+    //向左检查
     for (
       let i = col - 1;
-      i >= 0 && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
+      i >= minCol && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
       i--
     ) {
       count++;
+      if (count === 5) return true;
     }
     for (
       let i = col + 1;
-      i <= cols.value && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
+      i <= maxCol && boxMap.get(`row${row}col${i}`)?.belongsTo === active;
       i++
     ) {
       count++;
+      if (count === 5) return true;
     }
-    if (count >= 5) return true;
 
     // 检查垂直方向
     count = 1;
+
     for (
       let i = row - 1;
-      i >= 0 && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
+      i >= minRow && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
       i--
     ) {
       count++;
+      if (count === 5) return true;
     }
     for (
       let i = row + 1;
-      i <= rows.value && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
+      i <= maxRow && boxMap.get(`row${i}col${col}`)?.belongsTo === active;
       i++
     ) {
       count++;
+      if (count === 5) return true;
     }
-    if (count >= 5) return true;
-
     // 检查斜线方向（左上到右下）
     count = 1;
     for (
       let i = 1;
-      row - i >= 0 &&
-      col - i >= 0 &&
+      row - i >= minRow &&
+      col - i >= minCol &&
       boxMap.get(`row${row - i}col${col - i}`)?.belongsTo === active;
       i++
     ) {
@@ -171,8 +183,8 @@ export function useChessboard(socket, active, disabled, resetGame) {
     }
     for (
       let i = 1;
-      row + i <= rows.value &&
-      col + i <= cols.value &&
+      row + i <= maxRow &&
+      col + i <= maxCol &&
       boxMap.get(`row${row + i}col${col + i}`)?.belongsTo === active;
       i++
     ) {
@@ -184,8 +196,8 @@ export function useChessboard(socket, active, disabled, resetGame) {
     count = 1;
     for (
       let i = 1;
-      row - i >= 0 &&
-      col + i <= cols.value &&
+      row - i >= minRow &&
+      col + i <= maxCol &&
       boxMap.get(`row${row - i}col${col + i}`)?.belongsTo === active;
       i++
     ) {
@@ -193,8 +205,8 @@ export function useChessboard(socket, active, disabled, resetGame) {
     }
     for (
       let i = 1;
-      row + i <= rows.value &&
-      col - i >= 0 &&
+      row + i <= maxRow &&
+      col - i >= minCol &&
       boxMap.get(`row${row + i}col${col - i}`)?.belongsTo === active;
       i++
     ) {
@@ -204,7 +216,7 @@ export function useChessboard(socket, active, disabled, resetGame) {
 
     return false;
   }
-  
+
   // 重置棋盘
   function resetChessboard() {
     for (let r = 1; r <= rows.value; r++) {
@@ -213,7 +225,7 @@ export function useChessboard(socket, active, disabled, resetGame) {
       }
     }
   }
-  
+
   return {
     rows,
     cols,
